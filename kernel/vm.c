@@ -432,3 +432,33 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+//my add --print pagetable  for  vmprint()
+void print_pagetable(pagetable_t pagetable,int now) {
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    uint64 child;
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
+      for(int j=0;j<now;++j) {
+        printf(".. ");//to delete last ' '
+      }
+      // this PTE points to a lower-level page table.
+      child = PTE2PA(pte);
+      printf("..%d: pte %p pa %p\n",i,pte,child);
+      print_pagetable((pagetable_t)child,now+1);
+    } else if(pte & PTE_V){
+      //leaf to do
+      for(int j=0;j<now;++j) {
+        printf(".. ");//to delete last ' '
+      }
+      child = PTE2PA(pte);
+      printf("..%d: pte %p pa %p\n",i,pte,child);
+    }
+  }
+}
+
+//my add --vmprint
+void vmprint(pagetable_t pagetable) {
+  printf("page table %p\n",*pagetable);
+  print_pagetable(pagetable,0);
+}
