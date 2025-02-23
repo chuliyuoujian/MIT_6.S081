@@ -14,28 +14,54 @@ void freerange(void *pa_start, void *pa_end);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
-struct run {
+
+
+struct run
+{
   struct run *next;
 };
 
-struct {
+struct
+{
   struct spinlock lock;
   struct run *freelist;
 } kmem;
 
-void
-kinit()
-{
-  initlock(&kmem.lock, "kmem");
-  freerange(end, (void*)PHYSTOP);
+// my add
+static int ref_cnt[(PHYSTOP - KERNBASE) / PGSIZE];
+
+int pa_to_refcnt(uint64 pa)
+{ // 用来记录这个物理地址pa对应的引用计数的下标
+  return (pa - KERNBASE) / PGSIZE;
 }
 
-void
-freerange(void *pa_start, void *pa_end)
+void add_ref(uint64 pa)
+{
+  acquire(&kmem.lock);
+  ++ref_cnt[pa_to_refcnt(pa)];
+  release(&kmem.lock);
+}
+
+void sub_ref(uint64 pa)
+{
+  acquire(&kmem.lock);
+  --ref_cnt[pa_to_refcnt(pa)];
+  release(&kmem.lock);
+}
+
+void kinit()
+{
+  initlock(&kmem.lock, "kmem");
+  //my add
+  memset(ref_cnt,0,sizeof(ref_cnt));
+  freerange(end, (void *)PHYSTOP);
+}
+
+void freerange(void *pa_start, void *pa_end)
 {
   char *p;
-  p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  p = (char *)PGROUNDUP((uint64)pa_start);
+  for (; p + PGSIZE <= (char *)pa_end; p += PGSIZE)
     kfree(p);
 }
 
@@ -43,23 +69,30 @@ freerange(void *pa_start, void *pa_end)
 // which normally should have been returned by a
 // call to kalloc().  (The exception is when
 // initializing the allocator; see kinit above.)
-void
-kfree(void *pa)
+void kfree(void *pa)
 {
   struct run *r;
 
-  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+  if (((uint64)pa % PGSIZE) != 0 || (char *)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
+  // my add
+  if (ref_cnt[pa_to_refcnt((uint64)pa)] > 1)
+  {
+    sub_ref((uint64)pa); // 这个页的引用计数大于1，直接-1即可，只剩一个才释放回空闲列表
+    return;
+  }
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 
-  r = (struct run*)pa;
+  r = (struct run *)pa;
 
   acquire(&kmem.lock);
   r->next = kmem.freelist;
   kmem.freelist = r;
   release(&kmem.lock);
+  // my add
+  ref_cnt[pa_to_refcnt((uint64)pa)] = 0; // 释放之后对应页的引用计数置0
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -72,11 +105,15 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if (r)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if(r)
-    memset((char*)r, 5, PGSIZE); // fill with junk
-  return (void*)r;
+  if (r)
+    memset((char *)r, 5, PGSIZE); // fill with junk
+
+  // my add
+  if (r)
+  ref_cnt[pa_to_refcnt((uint64)r)] = 1;
+  return (void *)r;
 }
