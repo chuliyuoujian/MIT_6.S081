@@ -26,7 +26,7 @@
 
 struct
 {
-  struct spinlock lock;
+  struct spinlock lock;//大锁，用来防止死锁
   // my add
   struct spinlock bucket_lock[NBUCKET]; // 对应桶的锁
   struct buf buf[NBUF];
@@ -34,7 +34,7 @@ struct
   // Linked list of all buffers, through prev/next.
   // Sorted by how recently the buffer was used.
   // head.next is most recent, head.prev is least.
-  struct buf head[NBUCKET];
+  struct buf head[NBUCKET];//给缓冲区分散成13个桶
 } bcache;
 
 int hash(int num)
@@ -102,17 +102,17 @@ bget(uint dev, uint blockno)
   acquire(&bcache.bucket_lock[hashnum]);
 
   //重新检查一遍当前桶，放置在释放锁和获取锁的间隙有变动
-  for (b = bcache.head[hashnum].next; b != &bcache.head[hashnum]; b = b->next)
-  {
-    if (b->dev == dev && b->blockno == blockno)
-    {
-      b->refcnt++;
-      release(&bcache.bucket_lock[hashnum]);
-      release(&bcache.lock);
-      acquiresleep(&b->lock);
-      return b;
-    }
-  }
+  // for (b = bcache.head[hashnum].next; b != &bcache.head[hashnum]; b = b->next)
+  // {
+  //   if (b->dev == dev && b->blockno == blockno)
+  //   {
+  //     b->refcnt++;
+  //     release(&bcache.bucket_lock[hashnum]);
+  //     release(&bcache.lock);
+  //     acquiresleep(&b->lock);
+  //     return b;
+  //   }
+  // }
 
   int mintick = 0; // 用来记录找到最小的ticks
   for (b = bcache.head[hashnum].next; b != &bcache.head[hashnum]; b = b->next)
