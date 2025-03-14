@@ -5,4 +5,4 @@
 #define O_TRUNC   0x400
 
 //my add
-#define O_NOFOLLOW 0x800
+#define O_NOFOLLOW 0x004
