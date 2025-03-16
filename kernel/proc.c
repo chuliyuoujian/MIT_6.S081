@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
 
 struct cpu cpus[NCPU];
 
@@ -301,6 +302,17 @@ fork(void)
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
 
+
+  //my add
+  for(int i=0;i<NVMA;++i) {
+    np->vma[i].vaild=0;
+    if(p->vma[i].vaild) {
+      memmove(&np->vma[i],&p->vma[i],sizeof(struct vma_struct));
+      filedup(np->vma[i].f);
+    }
+  }
+
+
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
@@ -350,6 +362,19 @@ exit(int status)
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
+    }
+  }
+
+  //my add
+  for(int i=0;i<NVMA;++i) {
+    if(p->vma[i].vaild) {
+      p->vma[i].vaild=0;
+      if(p->vma[i].flag==MAP_SHARED) {
+        filewrite(p->vma[i].f,p->vma[i].addr,p->vma[i].length);
+      }
+      fileclose(p->vma[i].f);
+      int length=PGROUNDUP(p->vma[i].length);
+      uvmunmap(p->pagetable,p->vma[i].addr,length/PGSIZE,1);
     }
   }
 
